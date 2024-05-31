@@ -1,0 +1,181 @@
+<html>
+	<head>
+		<script type="text/javascript" src="scormAPI/init.js"></script>
+		<script type="text/javascript" src="scormAPI/jsonFormatter.js"></script>
+		<script type="text/javascript" src="scormAPI/constants.js"></script>
+		<script type="text/javascript" src="scormAPI/baseAPI.js"></script>
+		<script type="text/javascript" src="scormAPI/scormAPI.js"></script>
+		<script type="text/javascript" src="scormAPI/scormAPI2004.js"></script>
+		<script type="text/javascript">
+			var loggingOn = true;
+
+			function initializeScormPlayer() {
+				configureScorm2004Listeners();
+				configureScorm12Listeners();
+				sendMessage("PLAYER_INITIALIZED",{});
+			}
+
+			function configureScorm2004Listeners() {
+	            window.API_1484_11.on('Initialize', function() {
+					logToConsole('Initialized LMS');
+					// sendMessage('COURSE_CONTENT_INITIALIZED',{});
+    	        });
+
+        	    window.API_1484_11.on('Commit', function() {
+	                logToConsole('Commit');
+	                sendMessage('STORE_COURSE_STATUS',window.API_1484_11.cmi.toJSON());
+    	        });
+
+        	    window.API_1484_11.on('GetValue', function(CMIElement) {
+	                logToConsole('GetValue: ' + CMIElement);
+	            });
+
+    	        window.API_1484_11.on('SetValue', function(CMIElement, value) {
+	                logToConsole('SetValue ' + CMIElement + ' -> ' + value);
+	                sendMessage('STORE_COURSE_STATUS',window.API_1484_11.cmi.toJSON());
+
+	                if(CMIElement == 'cmi.completion_status' && value == 'completed') {
+		                sendMessage('COURSE_COMPLETE',{});
+	                }
+
+	                /*if(CMIElement == 'cmi.score.scaled') {
+		                sendMessage('TEST_COMPLETE',value*100);
+	                }*/
+
+	            });
+
+        	    window.API_1484_11.on('Terminate', function() {
+					logToConsole('Terminate');
+					var cmiData = window.API_1484_11.cmi.toJSON();
+					var completed = false;
+					if (cmiData.completion_status === 'completed' 
+						&& (cmiData.success_status === 'passed' || cmiData.success_status === 'failed')) {
+							completed = true;
+					}
+	                sendMessage('EXIT', {completed: completed, score: cmiData.score});
+	            });
+
+	            window.API_1484_11.on('GetLastError', function() {
+	                logToConsole('GetLastError');
+	            });
+
+	            window.API_1484_11.on('GetErrorString', function() {
+	                logToConsole('GetErrorString');
+	            });
+
+    	        window.API_1484_11.on('GetDiagnostic', function() {
+	                logToConsole('GetDiagnostic');
+	            });
+			}
+
+			function configureScorm12Listeners() {
+	            window.API.on('LMSInitialize', function() {
+	                 logToConsole('Initialized LMS - 1.2');
+    	        });
+
+        	    window.API.on('LMSCommit', function() {
+	                logToConsole('LMSCommit');
+	                sendMessage('STORE_COURSE_STATUS',window.API.cmi.toJSON());
+    	        });
+
+        	    window.API.on('LMSGetValue', function(CMIElement) {
+	                logToConsole('LMSGetValue: ' + CMIElement);
+	            });
+
+    	        window.API.on('LMSSetValue', function(CMIElement, value) {
+	                logToConsole('LMSSetValue ' + CMIElement + ' -> ' + value);
+	                sendMessage('STORE_COURSE_STATUS', window.API.cmi.toJSON());
+
+	                if(CMIElement == 'cmi.core.lesson_status' && value == 'completed') {
+		                sendMessage('COURSE_COMPLETE',{});
+	                }
+
+	                /*if(CMIElement == 'cmi.core.score.raw') {
+		                sendMessage('TEST_COMPLETE',value);
+	                }*/
+	            });
+
+        	    window.API.on('LMSFinish', function() {
+					logToConsole('LMSFinish', window.API.cmi.toJSON());
+					var cmiData = window.API.cmi.toJSON();
+					var completed = false;
+					if (//cmiData.core.lesson_status === 'completed' && 
+						(cmiData.core.lesson_status === 'passed' || cmiData.core.lesson_status === 'failed')) {
+							completed = true;
+					}
+	                sendMessage('EXIT', {completed: completed, score: cmiData.core.score});
+	            });
+
+	            window.API.on('LMSGetLastError', function() {
+	                logToConsole('LMSGetLastError');
+	            });
+
+	            window.API.on('LMSGetErrorString', function() {
+	                logToConsole('LMSGetErrorString');
+	            });
+
+    	        window.API.on('LMSGetDiagnostic', function() {
+	                logToConsole('LMSGetDiagnostic');
+	            });
+			}
+
+			function sendMessage(messageType, messageContent) {
+				var message = {
+					"messageType" : messageType,
+					"messageContent" : messageContent
+				}
+				parent.postMessage(message, "*");
+			}
+
+			function recieveMessage(event) {
+				logToConsole("Player Received Event: " + event.data.messageType + " : " + event.data.messageContent);
+
+				if(event && event.data && event.data.messageType) {
+					if(event.data.messageType == 'RESUME_COURSE') {
+						//TODO: Load CMI data
+						window.API.loadFromJSON(event.data.messageContent);
+						window.API_1484_11.loadFromJSON(event.data.messageContent);
+						loadScormContent();
+					} else if (event.data.messageType == 'BEGIN_COURSE') {
+						loadScormContent();
+					} else if (event.data.messageType == 'RESET_COURSE') {
+						window.API_1484_11.reset();
+						window.API.reset();
+					}
+				} else {
+					loadScormContent();
+				}
+			}
+
+			function loadScormContent() {
+				const queryString = window.location.search;
+				const urlParams = new URLSearchParams(queryString);
+				const contentId = 's3_scorm_player/abc';//urlParams.get('contentId');
+				const launchPage = 'MINRISKS/res/index.html';//urlParams.get('launchPage');
+
+				if(contentId && launchPage) {
+					const contentURL = window.location.protocol + "//" + window.location.host + "/" + contentId + "/" + launchPage;
+					document.getElementById("playerContainer").innerHTML = "<iframe id='playerFrame' style='width: 100%; height: 100%; border: none;' src='" + contentURL + "' allowFullScreen='allowFullScreen' frameBorder='0'></iframe>";
+				} else {
+					window.alert("Couldn't load it " + contentId + " " + launchPage);
+				}
+			}
+
+			function logToConsole(logEntry) {
+				if(loggingOn) {
+					console.log(logEntry);
+				}
+			}
+
+			document.addEventListener("DOMContentLoaded", initializeScormPlayer);
+
+			window.addEventListener('message',recieveMessage,false);
+
+		</script>
+	</head>
+	<body>
+		<div id="playerContainer">
+			<iframe id="playerFrame" style="width: 100%; height: 100%; border: none;" src=""  allowFullScreen="allowFullScreen" frameBorder="0"></iframe>
+		</div>
+	</body>
+</html>
